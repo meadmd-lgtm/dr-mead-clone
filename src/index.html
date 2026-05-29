@@ -572,6 +572,7 @@ function hidePlayButton() {
 }
 
 async function playSpeak(text) {
+  console.log('Sending to ElevenLabs:', text.slice(0, 60) + (text.length > 60 ? '...' : ''));
   const res = await fetch('/api/speak', {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
