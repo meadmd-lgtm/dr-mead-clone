@@ -152,6 +152,34 @@ header p.subtitle {
 }
 #status { font-size: 0.82rem; color: var(--gray-600); min-height: 18px; }
 
+/* ── HeyGen avatar section ── */
+#avatar-section {
+  background: #0d0000;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+#avatar-section.hidden { display: none; }
+#avatar-video {
+  width: 100%;
+  max-width: 480px;
+  aspect-ratio: 16/9;
+  border: 3px solid var(--burgundy);
+  border-radius: 12px;
+  background: #111;
+  object-fit: cover;
+  display: block;
+}
+#avatar-label {
+  font-size: 0.72rem;
+  color: rgba(255,255,255,0.45);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
 /* ── Mobile play button ── */
 #play-btn {
   display: none;
@@ -292,6 +320,11 @@ footer {
   <p class="subtitle">Empowering you to live a healthier, happier life</p>
 </header>
 
+<div id="avatar-section" class="hidden">
+  <video id="avatar-video" autoplay playsinline></video>
+  <div id="avatar-label">Dr. Mead — Live</div>
+</div>
+
 <div id="chat">
   <div class="msg assistant">
     <div class="lbl">Dr. Mead</div>
@@ -334,6 +367,103 @@ footer {
 // ── Device detection ──────────────────────────────────────────────────────────
 const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 const isIOS    = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+// ── HeyGen streaming avatar ───────────────────────────────────────────────────
+let hgSessionId   = null;
+let hgPeerConn    = null;
+let hgDataChannel = null;
+let hgReady       = false;
+let hgInitPromise = null;
+
+async function initHeyGen() {
+  try {
+    const sessRes = await fetch('/api/heygen/session', { method: 'POST' });
+    if (!sessRes.ok) throw new Error('HeyGen not configured');
+    const sess = await sessRes.json();
+    if (!sess.session_id) throw new Error('No session_id returned');
+
+    hgSessionId = sess.session_id;
+    const pc = new RTCPeerConnection({ iceServers: sess.ice_servers2 || sess.ice_servers || [] });
+    hgPeerConn = pc;
+
+    pc.ontrack = (e) => {
+      if (e.streams && e.streams[0]) {
+        const vid = document.getElementById('avatar-video');
+        vid.srcObject = e.streams[0];
+        document.getElementById('avatar-section').classList.remove('hidden');
+      }
+    };
+
+    pc.ondatachannel = (e) => {
+      hgDataChannel = e.channel;
+    };
+
+    pc.onicecandidate = async ({ candidate }) => {
+      if (candidate && hgSessionId) {
+        fetch('/api/heygen/ice', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_id: hgSessionId, candidate })
+        }).catch(() => {});
+      }
+    };
+
+    await pc.setRemoteDescription(new RTCSessionDescription(sess.sdp));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+
+    const startRes = await fetch('/api/heygen/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: hgSessionId, sdp: answer })
+    });
+    if (!startRes.ok) throw new Error('HeyGen start failed');
+
+    hgReady = true;
+    console.log('[HeyGen] Session ready:', hgSessionId);
+    return true;
+  } catch (err) {
+    console.warn('[HeyGen] Init failed:', err.message);
+    hgReady = false;
+    return false;
+  }
+}
+
+async function hgSpeak(text) {
+  if (!hgReady || !hgSessionId) return false;
+  try {
+    const r = await fetch('/api/heygen/speak', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: hgSessionId, text })
+    });
+    if (!r.ok) { hgReady = false; return false; }
+
+    // Estimate speaking duration; resolve early if data channel sends stop event
+    const words = text.trim().split(/\s+/).length;
+    const estimate = Math.max(3000, words * 450 + 1500);
+    return new Promise((resolve) => {
+      const tid = setTimeout(resolve, estimate);
+      if (hgDataChannel) {
+        const handler = (msg) => {
+          try {
+            const d = JSON.parse(msg.data);
+            if (d.type === 'avatar_stop_talking') {
+              clearTimeout(tid);
+              hgDataChannel.removeEventListener('message', handler);
+              resolve();
+            }
+          } catch (_) {}
+        };
+        hgDataChannel.addEventListener('message', handler);
+      }
+    }).then(() => true);
+  } catch (err) {
+    console.warn('[HeyGen] Speak failed:', err.message);
+    hgReady = false;
+    return false;
+  }
+}
 
 // ── Welcome modal ─────────────────────────────────────────────────────────────
 function dismissWelcome() {
@@ -418,6 +548,11 @@ function startListening() {
       ? '⚠ Voice input requires iOS 14.5+ with HTTPS.'
       : '⚠ Speech recognition requires Chrome or Edge.');
     return;
+  }
+
+  // Lazy-init HeyGen on first mic tap (needs user gesture for video autoplay)
+  if (!hgInitPromise) {
+    hgInitPromise = initHeyGen();
   }
 
   isListening     = true;
@@ -571,6 +706,13 @@ function hidePlayButton() {
 }
 
 async function playSpeak(text) {
+  // Try HeyGen streaming avatar first (video + audio with lip sync)
+  if (hgReady || (hgInitPromise && await hgInitPromise)) {
+    const ok = await hgSpeak(text);
+    if (ok) return;
+  }
+
+  // Fall back to ElevenLabs audio only
   const res = await fetch('/api/speak', {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -583,8 +725,6 @@ async function playSpeak(text) {
   const url = URL.createObjectURL(await res.blob());
 
   if (isMobile) {
-    // Mobile browsers block autoplay — audio must be triggered by a direct user tap.
-    // Show a play button; the promise resolves after the user taps and audio ends.
     setStatus('Tap the button below to hear Dr. Mead\'s response.');
     return new Promise((resolve) => {
       const btn = document.getElementById('play-btn');
