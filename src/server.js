@@ -8,8 +8,6 @@ require('dotenv').config();
 const ANTHROPIC_KEY    = (process.env.ANTHROPIC_API_KEY   || '').trim();
 const ELEVENLABS_KEY   = (process.env.ELEVENLABS_API_KEY  || '').trim();
 const ELEVENLABS_VOICE = (process.env.ELEVENLABS_VOICE_ID || '').trim();
-const HEYGEN_KEY       = (process.env.HEYGEN_API_KEY      || '').trim();
-const HEYGEN_AVATAR    = (process.env.HEYGEN_AVATAR_ID    || '').trim();
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -225,72 +223,6 @@ app.post('/api/speak', async (req, res) => {
   }
 });
 
-// ── HeyGen Streaming Avatar ───────────────────────────────────────────────────
-const HG = 'https://api.heygen.com/v1';
-const hgHeaders = () => ({ 'x-api-key': HEYGEN_KEY, 'Content-Type': 'application/json' });
-
-app.post('/api/heygen/session', async (req, res) => {
-  if (!HEYGEN_KEY || !HEYGEN_AVATAR) return res.status(503).json({ error: 'HeyGen not configured' });
-  try {
-    const r = await fetch(`${HG}/streaming.new`, {
-      method: 'POST', headers: hgHeaders(),
-      body: JSON.stringify({ quality: 'high', avatar_name: HEYGEN_AVATAR, voice: { rate: 1.0 } })
-    });
-    const d = await r.json();
-    if (!r.ok) return res.status(r.status).json({ error: d.message || 'HeyGen session error' });
-    res.json(d.data);
-  } catch (err) { res.status(502).json({ error: err.message }); }
-});
-
-app.post('/api/heygen/start', async (req, res) => {
-  const { session_id, sdp } = req.body;
-  try {
-    const r = await fetch(`${HG}/streaming.start`, {
-      method: 'POST', headers: hgHeaders(),
-      body: JSON.stringify({ session_id, sdp })
-    });
-    const d = await r.json();
-    if (!r.ok) return res.status(r.status).json({ error: d.message || 'HeyGen start error' });
-    res.json(d);
-  } catch (err) { res.status(502).json({ error: err.message }); }
-});
-
-app.post('/api/heygen/ice', async (req, res) => {
-  const { session_id, candidate } = req.body;
-  try {
-    const r = await fetch(`${HG}/streaming.ice`, {
-      method: 'POST', headers: hgHeaders(),
-      body: JSON.stringify({ session_id, candidate })
-    });
-    res.json(await r.json());
-  } catch (err) { res.status(502).json({ error: err.message }); }
-});
-
-app.post('/api/heygen/speak', async (req, res) => {
-  const { session_id, text } = req.body;
-  if (!session_id || !text) return res.status(400).json({ error: 'session_id and text required' });
-  try {
-    const r = await fetch(`${HG}/streaming.task`, {
-      method: 'POST', headers: hgHeaders(),
-      body: JSON.stringify({ session_id, text, task_type: 'repeat' })
-    });
-    const d = await r.json();
-    if (!r.ok) return res.status(r.status).json({ error: d.message || 'HeyGen speak error' });
-    res.json(d);
-  } catch (err) { res.status(502).json({ error: err.message }); }
-});
-
-app.post('/api/heygen/stop', async (req, res) => {
-  const { session_id } = req.body;
-  try {
-    const r = await fetch(`${HG}/streaming.stop`, {
-      method: 'POST', headers: hgHeaders(),
-      body: JSON.stringify({ session_id })
-    });
-    res.json(await r.json());
-  } catch (err) { res.status(502).json({ error: err.message }); }
-});
-
 // Explicit root fallback — ensures / always returns index.html
 app.get('/', (_req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
@@ -304,11 +236,9 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log('  ANTHROPIC_API_KEY:  ', preview(ANTHROPIC_KEY));
   console.log('  ELEVENLABS_API_KEY: ', preview(ELEVENLABS_KEY));
   console.log('  ELEVENLABS_VOICE_ID:', preview(ELEVENLABS_VOICE));
-  console.log('  HEYGEN_API_KEY:     ', preview(HEYGEN_KEY));
-  console.log('  HEYGEN_AVATAR_ID:   ', preview(HEYGEN_AVATAR));
   console.log('Keys loaded:',
     ANTHROPIC_KEY   ? 'ANTHROPIC ✓' : 'ANTHROPIC ✗',
     ELEVENLABS_KEY  ? 'ELEVENLABS ✓' : 'ELEVENLABS ✗',
-    HEYGEN_KEY      ? 'HEYGEN ✓'    : 'HEYGEN ✗'
+    ELEVENLABS_VOICE ? 'VOICE_ID ✓'  : 'VOICE_ID ✗'
   );
 });
