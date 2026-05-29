@@ -152,6 +152,39 @@ header p.subtitle {
 }
 #status { font-size: 0.82rem; color: var(--gray-600); min-height: 18px; }
 
+/* ── Mobile play button ── */
+#play-btn {
+  display: none;
+  background: var(--burgundy);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  padding: 13px 22px;
+  font-family: 'Source Sans 3', sans-serif;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  width: 100%;
+  max-width: 320px;
+  transition: background 0.2s;
+  box-shadow: 0 3px 12px rgba(128,0,0,0.3);
+}
+#play-btn:hover { background: var(--burgundy-mid); }
+
+/* ── Mobile overrides ── */
+@media (max-width: 600px) {
+  header { padding: 18px 16px; }
+  header h1 { font-size: 1.2rem; }
+  #chat { padding: 16px 12px; }
+  .msg { max-width: 92%; font-size: 0.9rem; }
+  #mic-btn {
+    width: 110px; height: 110px;
+    font-size: 2.6rem;
+    box-shadow: 0 6px 20px rgba(128,0,0,0.4);
+  }
+  #controls { padding: 20px 16px 18px; gap: 12px; }
+}
+
 /* ── Welcome modal ── */
 #welcome-overlay {
   position: fixed; inset: 0;
@@ -272,6 +305,7 @@ footer {
 <div id="controls">
   <div id="interim"></div>
   <button id="mic-btn" onclick="toggleMic()">🎤</button>
+  <button id="play-btn">&#9654; Hear Response</button>
   <div class="tagline">Ask Dr. Mead anything about your health</div>
   <div id="status">Press the microphone to speak</div>
 </div>
@@ -288,7 +322,7 @@ footer {
       <p>This app uses your microphone so you can speak naturally with Dr. Mead. You'll need to grant microphone access before we begin.</p>
       <div class="mic-instruction">
         <div class="step"><div class="num">1</div><span>When your browser asks "Allow microphone access?", click <strong>Allow</strong>.</span></div>
-        <div class="step"><div class="num">2</div><span>If you accidentally blocked it, click the <strong>microphone icon</strong> in your browser's address bar and select <strong>Allow</strong>.</span></div>
+        <div class="step"><div class="num">2</div><span id="mic-step-2">If you accidentally blocked it, click the <strong>microphone icon</strong> in your browser's address bar and select <strong>Allow</strong>.</span></div>
         <div class="step"><div class="num">3</div><span>Then press the microphone button and speak your question.</span></div>
       </div>
       <button id="welcome-start" onclick="dismissWelcome()">I've allowed microphone access — Let's start!</button>
@@ -297,7 +331,11 @@ footer {
 </div>
 
 <script>
-// ── Welcome modal ────────────────────────────────────────────────────────────
+// ── Device detection ──────────────────────────────────────────────────────────
+const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+const isIOS    = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+// ── Welcome modal ─────────────────────────────────────────────────────────────
 function dismissWelcome() {
   document.getElementById('welcome-overlay').classList.add('hidden');
   localStorage.setItem('dm_welcomed', '1');
@@ -305,21 +343,29 @@ function dismissWelcome() {
 if (localStorage.getItem('dm_welcomed')) {
   document.getElementById('welcome-overlay').classList.add('hidden');
 }
+if (isMobile) {
+  const step2 = document.getElementById('mic-step-2');
+  if (step2) step2.innerHTML = isIOS
+    ? 'If blocked: go to <strong>Settings &rsaquo; Safari &rsaquo; Microphone</strong> and allow this site.'
+    : 'If blocked: tap the <strong>lock icon</strong> in Chrome\'s address bar &rsaquo; Permissions &rsaquo; Microphone &rsaquo; Allow.';
+}
 
-let recognition  = null;
-let isListening  = false;
-let isBusy       = false;
-let history      = [];
-let finalTranscript  = '';
-let lastTranscript   = '';
+let recognition     = null;
+let isListening     = false;
+let isBusy          = false;
+let history         = [];
+let finalTranscript = '';
+let lastTranscript  = '';
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
 window.addEventListener('load', () => {
   if (!SR) {
-    setStatus('⚠ Speech recognition requires Chrome or Edge.');
+    setStatus(isIOS
+      ? '⚠ Voice input requires iOS 14.5+ with HTTPS.'
+      : '⚠ Speech recognition requires Chrome or Edge.');
     document.getElementById('mic-btn').disabled = true;
   } else {
-    setStatus('Press the microphone to speak.');
+    setStatus(isMobile ? 'Tap the microphone to speak.' : 'Press the microphone to speak.');
   }
 });
 
@@ -328,8 +374,6 @@ function setStatus(msg) { document.getElementById('status').textContent = msg; }
 
 function addMsg(role, text) {
   const chat = document.getElementById('chat');
-
-  // Remove regenerate button from previous assistant message
   const prev = chat.querySelector('.regen-btn');
   if (prev) prev.remove();
 
@@ -369,59 +413,68 @@ function toggleMic() {
 }
 
 function startListening() {
-  if (!SR) { setStatus('⚠ Speech recognition requires Chrome or Edge.'); return; }
+  if (!SR) {
+    setStatus(isIOS
+      ? '⚠ Voice input requires iOS 14.5+ with HTTPS.'
+      : '⚠ Speech recognition requires Chrome or Edge.');
+    return;
+  }
 
-  navigator.mediaDevices.getUserMedia({ audio: true })
-    .then(() => {
-      isListening      = true;
-      finalTranscript  = '';
-      lastTranscript   = '';
+  isListening     = true;
+  finalTranscript = '';
+  lastTranscript  = '';
 
-      const btn = document.getElementById('mic-btn');
-      btn.className = 'listening'; btn.textContent = '⏹';
-      setStatus('Listening — speak now');
+  const btn = document.getElementById('mic-btn');
+  btn.className = 'listening'; btn.textContent = '⏹';
+  setStatus('Listening — speak now');
 
-      recognition = new SR();
-      recognition.continuous     = false;
-      recognition.interimResults = true;
-      recognition.lang           = 'en-US';
-      recognition.maxAlternatives = 1;
+  recognition = new SR();
+  recognition.continuous      = false;
+  recognition.interimResults  = true;
+  recognition.lang            = 'en-US';
+  recognition.maxAlternatives = 1;
 
-      recognition.onstart = () => setStatus('Listening — speak now');
+  recognition.onstart = () => setStatus('Listening — speak now');
 
-      recognition.onresult = (e) => {
-        const t = Array.from(e.results).map(r => r[0].transcript).join('');
-        lastTranscript = t.trim();
-        document.getElementById('interim').textContent = t;
-        if (e.results[e.results.length - 1].isFinal) finalTranscript = t.trim();
-      };
+  recognition.onresult = (e) => {
+    const t = Array.from(e.results).map(r => r[0].transcript).join('');
+    lastTranscript = t.trim();
+    document.getElementById('interim').textContent = t;
+    if (e.results[e.results.length - 1].isFinal) finalTranscript = t.trim();
+  };
 
-      recognition.onerror = (e) => {
-        if (!finalTranscript && lastTranscript) finalTranscript = lastTranscript;
-        const msgs = {
-          'not-allowed':   '⚠ Microphone blocked — allow mic access in Chrome\'s address bar.',
-          'no-speech':     'No speech detected. Press the mic and try again.',
-          'network':       'Network error during speech recognition.',
-          'audio-capture': 'No microphone found. Check your audio devices.'
-        };
-        if (!finalTranscript) { setStatus(msgs[e.error] || 'Mic error: ' + e.error); stopListening(); }
-      };
+  recognition.onerror = (e) => {
+    if (!finalTranscript && lastTranscript) finalTranscript = lastTranscript;
+    const notAllowed = isMobile
+      ? '⚠ Mic blocked — go to Settings › ' + (isIOS ? 'Safari' : 'Chrome') + ' › Microphone and allow this site.'
+      : '⚠ Mic blocked — click the lock icon in the address bar and allow Microphone.';
+    const msgs = {
+      'not-allowed':   notAllowed,
+      'no-speech':     'No speech detected. Tap the mic and try again.',
+      'network':       'Network error. Check your connection and try again.',
+      'audio-capture': 'No microphone found. Check your device audio settings.'
+    };
+    if (!finalTranscript) { setStatus(msgs[e.error] || 'Mic error: ' + e.error); stopListening(); }
+  };
 
-      recognition.onend = () => {
-        const text = finalTranscript || lastTranscript;
-        finalTranscript = ''; lastTranscript = '';
-        stopListening();
-        document.getElementById('interim').textContent = '';
-        if (text) {
-          processInput(text);
-        } else if (!isBusy) {
-          setStatus('No speech detected. Press the mic to try again.');
-        }
-      };
+  recognition.onend = () => {
+    const text = finalTranscript || lastTranscript;
+    finalTranscript = ''; lastTranscript = '';
+    stopListening();
+    document.getElementById('interim').textContent = '';
+    if (text) {
+      processInput(text);
+    } else if (!isBusy) {
+      setStatus('No speech detected. Tap the mic to try again.');
+    }
+  };
 
-      recognition.start();
-    })
-    .catch(() => setStatus('⚠ Microphone access denied. Allow mic access in Chrome and try again.'));
+  try {
+    recognition.start();
+  } catch (err) {
+    setStatus('Could not start microphone: ' + err.message);
+    stopListening();
+  }
 }
 
 function stopListening() {
@@ -434,8 +487,8 @@ function stopListening() {
 // ── Conversation pipeline ─────────────────────────────────────────────────────
 async function regenerate() {
   if (isBusy) return;
+  hidePlayButton();
 
-  // Remove last assistant message from history and DOM
   if (history.length >= 2 && history[history.length - 1].role === 'assistant') {
     history.pop();
     const chat = document.getElementById('chat');
@@ -443,7 +496,6 @@ async function regenerate() {
     if (msgs.length) msgs[msgs.length - 1].remove();
   }
 
-  // Re-send the last user message (still in history)
   const lastUserMsg = [...history].reverse().find(m => m.role === 'user');
   if (!lastUserMsg) return;
 
@@ -455,7 +507,6 @@ async function regenerate() {
     const reply = await callChat(history);
     history.push({ role: 'assistant', content: reply });
     addMsg('assistant', reply);
-    setStatus('Speaking...');
     document.getElementById('mic-btn').className = 'speaking';
     await playSpeak(reply);
   } catch (err) {
@@ -467,13 +518,14 @@ async function regenerate() {
     document.getElementById('mic-btn').className = '';
     document.getElementById('mic-btn').textContent = '🎤';
     if (!document.getElementById('status').textContent.startsWith('Error')) {
-      setStatus('Press the microphone to continue.');
+      setStatus(isMobile ? 'Tap the microphone to continue.' : 'Press the microphone to continue.');
     }
   }
 }
 
 async function processInput(text) {
   isBusy = true;
+  hidePlayButton();
   document.getElementById('mic-btn').disabled = true;
   addMsg('user', text);
   history.push({ role: 'user', content: text });
@@ -483,11 +535,8 @@ async function processInput(text) {
     const reply = await callChat(history);
     history.push({ role: 'assistant', content: reply });
     addMsg('assistant', reply);
-
-    setStatus('Speaking...');
     document.getElementById('mic-btn').className = 'speaking';
     await playSpeak(reply);
-
   } catch (err) {
     history.pop();
     addError(err.message || 'Something went wrong.');
@@ -498,7 +547,7 @@ async function processInput(text) {
     document.getElementById('mic-btn').className = '';
     document.getElementById('mic-btn').textContent = '🎤';
     if (!document.getElementById('status').textContent.startsWith('Error')) {
-      setStatus('Press the microphone to continue.');
+      setStatus(isMobile ? 'Tap the microphone to continue.' : 'Press the microphone to continue.');
     }
   }
 }
@@ -514,6 +563,13 @@ async function callChat(messages) {
   return data.reply;
 }
 
+// ── Audio playback ────────────────────────────────────────────────────────────
+function hidePlayButton() {
+  const btn = document.getElementById('play-btn');
+  btn.style.display = 'none';
+  btn.onclick = null;
+}
+
 async function playSpeak(text) {
   const res = await fetch('/api/speak', {
     method:  'POST',
@@ -525,6 +581,25 @@ async function playSpeak(text) {
     throw new Error(e.error || `Speech error ${res.status}`);
   }
   const url = URL.createObjectURL(await res.blob());
+
+  if (isMobile) {
+    // Mobile browsers block autoplay — audio must be triggered by a direct user tap.
+    // Show a play button; the promise resolves after the user taps and audio ends.
+    setStatus('Tap the button below to hear Dr. Mead\'s response.');
+    return new Promise((resolve) => {
+      const btn = document.getElementById('play-btn');
+      btn.style.display = 'block';
+      btn.onclick = () => {
+        btn.style.display = 'none';
+        setStatus('Playing...');
+        const audio = new Audio(url);
+        audio.onended = () => { URL.revokeObjectURL(url); resolve(); };
+        audio.onerror = () => { URL.revokeObjectURL(url); resolve(); };
+        audio.play().catch(() => { URL.revokeObjectURL(url); resolve(); });
+      };
+    });
+  }
+
   return new Promise((resolve, reject) => {
     const audio = new Audio(url);
     audio.onended = () => { URL.revokeObjectURL(url); resolve(); };
