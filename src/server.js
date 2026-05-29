@@ -8,6 +8,9 @@ require('dotenv').config();
 const ANTHROPIC_KEY    = (process.env.ANTHROPIC_API_KEY   || '').trim();
 const ELEVENLABS_KEY   = (process.env.ELEVENLABS_API_KEY  || '').trim();
 const ELEVENLABS_VOICE = (process.env.ELEVENLABS_VOICE_ID || '').trim();
+const HEYGEN_KEY       = (process.env.HEYGEN_API_KEY      || '').trim();
+const HEYGEN_AVATAR    = (process.env.HEYGEN_AVATAR_ID    || '').trim();
+const HEYGEN_VOICE     = (process.env.HEYGEN_VOICE_ID     || '').trim();
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -223,6 +226,107 @@ app.post('/api/speak', async (req, res) => {
   }
 });
 
+// ── Content-script prompt builder ─────────────────────────────────────────────
+function buildContentPrompt(topic, contentType, length) {
+  const words    = { short: 150, medium: 450, long: 750 }[length] || 300;
+  const duration = { short: '1 minute', medium: '3 minutes', long: '5 minutes' }[length] || '2 minutes';
+  const formats  = {
+    youtube:       'a YouTube video script. Open with a strong 15-second hook that names the problem. Build the educational body. Close with a clear call to action.',
+    social:        'a social media post for Instagram/Facebook. Punchy and relatable. End with an engaging question or CTA. Add 3–5 relevant hashtags at the end.',
+    'facebook-ad': 'a Facebook ad. Open with a scroll-stopping line. State the problem clearly. Present your solution. Add social proof. Close with a strong CTA.',
+    email:         'an email newsletter. The first line must be "Subject: <your subject here>". Then write the email with a personal opening, educational body, and a clear next step.'
+  };
+  return `You are Dr. Mead — chiropractor, naturopath, master herbalist, doctor of indigenous medicine.
+
+Write ${formats[contentType] || formats.youtube}
+
+Topic: "${topic}"
+Target length: ~${words} words (~${duration} of speaking time).
+
+Voice rules: warm, direct, educational, hopeful. Plain spoken sentences only — no markdown, no bullet points, no asterisks, no headers. Speak directly to someone who has been dismissed by conventional medicine. Connect symptoms to root causes. Explain the why. End with a concrete next step.`;
+}
+
+// ── POST /api/generate-script ─────────────────────────────────────────────────
+app.post('/api/generate-script', async (req, res) => {
+  const { topic, contentType, length } = req.body;
+  if (!topic)         return res.status(400).json({ error: 'topic required' });
+  if (!ANTHROPIC_KEY) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not set' });
+
+  console.log(`\n[Script] ${contentType} / ${length} — "${topic}"`);
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6', max_tokens: 1500,
+        system: buildContentPrompt(topic, contentType, length),
+        messages: [{ role: 'user', content: 'Write the script now.' }]
+      })
+    });
+    if (!r.ok) { const e = await r.json().catch(() => ({})); return res.status(r.status).json({ error: e.error?.message || `Claude error ${r.status}` }); }
+    const data   = await r.json();
+    const script = data.content[0].text;
+    console.log('[Script] ~' + script.split(/\s+/).length + ' words');
+    res.json({ script });
+  } catch (err) {
+    console.error('[Script] Error:', err.message);
+    res.status(502).json({ error: 'Could not reach Claude API: ' + err.message });
+  }
+});
+
+// ── POST /api/generate-video ──────────────────────────────────────────────────
+app.post('/api/generate-video', async (req, res) => {
+  const { script } = req.body;
+  if (!script)        return res.status(400).json({ error: 'script required' });
+  if (!HEYGEN_KEY)    return res.status(500).json({ error: 'HEYGEN_API_KEY not set in .env' });
+  if (!HEYGEN_AVATAR) return res.status(500).json({ error: 'HEYGEN_AVATAR_ID not set in .env' });
+
+  console.log('\n[Video] Submitting to HeyGen, chars:', script.length);
+  const voice = { type: 'text', input_text: script };
+  if (HEYGEN_VOICE) voice.voice_id = HEYGEN_VOICE;
+
+  try {
+    const r = await fetch('https://api.heygen.com/v2/video/generate', {
+      method: 'POST',
+      headers: { 'X-Api-Key': HEYGEN_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        video_inputs: [{
+          character:  { type: 'avatar', avatar_id: HEYGEN_AVATAR, avatar_style: 'normal' },
+          voice,
+          background: { type: 'color', value: '#f8f4f0' }
+        }],
+        aspect_ratio: '16:9'
+      })
+    });
+    console.log('[Video] HeyGen HTTP status:', r.status);
+    const data = await r.json();
+    if (!r.ok) { console.error('[Video] HeyGen error:', JSON.stringify(data)); return res.status(r.status).json({ error: data.message || data.error || `HeyGen error ${r.status}` }); }
+    const videoId = data.data?.video_id || data.video_id;
+    console.log('[Video] Queued, video_id:', videoId);
+    res.json({ videoId });
+  } catch (err) {
+    console.error('[Video] Network error:', err.message);
+    res.status(502).json({ error: 'Could not reach HeyGen: ' + err.message });
+  }
+});
+
+// ── GET /api/video-status/:videoId ────────────────────────────────────────────
+app.get('/api/video-status/:videoId', async (req, res) => {
+  if (!HEYGEN_KEY) return res.status(500).json({ error: 'HEYGEN_API_KEY not set' });
+  try {
+    const r = await fetch(`https://api.heygen.com/v1/video_status.get?video_id=${req.params.videoId}`, {
+      headers: { 'X-Api-Key': HEYGEN_KEY }
+    });
+    const data = await r.json();
+    if (!r.ok) return res.status(r.status).json({ error: `HeyGen error ${r.status}` });
+    const d = data.data || {};
+    console.log(`[Video] Status ${req.params.videoId}: ${d.status}`);
+    res.json({ status: d.status, videoUrl: d.video_url || null });
+  } catch (err) {
+    res.status(502).json({ error: 'Could not reach HeyGen: ' + err.message });
+  }
+});
+
 // Explicit root fallback — ensures / always returns index.html
 app.get('/', (_req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
@@ -236,9 +340,11 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log('  ANTHROPIC_API_KEY:  ', preview(ANTHROPIC_KEY));
   console.log('  ELEVENLABS_API_KEY: ', preview(ELEVENLABS_KEY));
   console.log('  ELEVENLABS_VOICE_ID:', preview(ELEVENLABS_VOICE));
+  console.log('  HEYGEN_API_KEY:     ', preview(HEYGEN_KEY));
+  console.log('  HEYGEN_AVATAR_ID:   ', preview(HEYGEN_AVATAR));
   console.log('Keys loaded:',
-    ANTHROPIC_KEY   ? 'ANTHROPIC ✓' : 'ANTHROPIC ✗',
-    ELEVENLABS_KEY  ? 'ELEVENLABS ✓' : 'ELEVENLABS ✗',
-    ELEVENLABS_VOICE ? 'VOICE_ID ✓'  : 'VOICE_ID ✗'
+    ANTHROPIC_KEY ? 'ANTHROPIC ✓' : 'ANTHROPIC ✗',
+    ELEVENLABS_KEY ? 'ELEVENLABS ✓' : 'ELEVENLABS ✗',
+    HEYGEN_KEY    ? 'HEYGEN ✓'    : 'HEYGEN ✗'
   );
 });
