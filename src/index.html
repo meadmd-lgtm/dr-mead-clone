@@ -151,6 +151,94 @@ header p.subtitle {
   margin-top: -2px;
 }
 #status { font-size: 0.82rem; color: var(--gray-600); min-height: 18px; }
+
+/* ── Welcome modal ── */
+#welcome-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.55);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 100;
+  padding: 20px;
+}
+#welcome-overlay.hidden { display: none; }
+#welcome-box {
+  background: white;
+  border-radius: 16px;
+  max-width: 460px;
+  width: 100%;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+}
+#welcome-box .wh {
+  background: var(--burgundy);
+  color: white;
+  padding: 28px 28px 22px;
+  text-align: center;
+}
+#welcome-box .wh h2 {
+  font-family: 'Merriweather', Georgia, serif;
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.35;
+  margin-bottom: 6px;
+}
+#welcome-box .wh p {
+  font-size: 0.85rem;
+  opacity: 0.88;
+  font-style: italic;
+}
+#welcome-box .wb {
+  padding: 24px 28px 28px;
+}
+#welcome-box .wb p {
+  font-size: 0.95rem;
+  color: var(--text);
+  line-height: 1.6;
+  margin-bottom: 18px;
+}
+.mic-instruction {
+  background: #fdf4f4;
+  border: 1px solid #e8c8c8;
+  border-left: 4px solid var(--burgundy);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 22px;
+}
+.mic-instruction .step {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 0.88rem;
+  color: var(--text);
+  line-height: 1.5;
+}
+.mic-instruction .step + .step { margin-top: 10px; }
+.mic-instruction .num {
+  background: var(--burgundy);
+  color: white;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  font-size: 0.72rem;
+  font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+#welcome-start {
+  width: 100%;
+  background: var(--burgundy);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  padding: 14px 20px;
+  font-family: 'Source Sans 3', sans-serif;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+#welcome-start:hover { background: var(--burgundy-mid); }
+
 footer {
   background: var(--burgundy-dark);
   color: rgba(255,255,255,0.85);
@@ -190,7 +278,34 @@ footer {
 
 <footer>Dr. Mark Mead &mdash; Chiropractor, Naturopath, Master Herbalist</footer>
 
+<div id="welcome-overlay">
+  <div id="welcome-box">
+    <div class="wh">
+      <h2>Welcome to Dr. Mead AI</h2>
+      <p>Your personal health consultation — powered by voice</p>
+    </div>
+    <div class="wb">
+      <p>This app uses your microphone so you can speak naturally with Dr. Mead. You'll need to grant microphone access before we begin.</p>
+      <div class="mic-instruction">
+        <div class="step"><div class="num">1</div><span>When your browser asks "Allow microphone access?", click <strong>Allow</strong>.</span></div>
+        <div class="step"><div class="num">2</div><span>If you accidentally blocked it, click the <strong>microphone icon</strong> in your browser's address bar and select <strong>Allow</strong>.</span></div>
+        <div class="step"><div class="num">3</div><span>Then press the microphone button and speak your question.</span></div>
+      </div>
+      <button id="welcome-start" onclick="dismissWelcome()">I've allowed microphone access — Let's start!</button>
+    </div>
+  </div>
+</div>
+
 <script>
+// ── Welcome modal ────────────────────────────────────────────────────────────
+function dismissWelcome() {
+  document.getElementById('welcome-overlay').classList.add('hidden');
+  localStorage.setItem('dm_welcomed', '1');
+}
+if (localStorage.getItem('dm_welcomed')) {
+  document.getElementById('welcome-overlay').classList.add('hidden');
+}
+
 let recognition  = null;
 let isListening  = false;
 let isBusy       = false;
