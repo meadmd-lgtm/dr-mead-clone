@@ -2,7 +2,7 @@
 const express = require('express');
 const path    = require('path');
 const fs      = require('fs');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+require('dotenv').config();
 
 // Trim whitespace/CRLF from keys — Windows Add-Content adds \r which breaks auth
 const ANTHROPIC_KEY   = (process.env.ANTHROPIC_API_KEY   || '').trim();
