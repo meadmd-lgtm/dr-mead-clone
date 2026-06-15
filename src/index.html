@@ -353,7 +353,7 @@ footer {
 
 <nav id="tabs">
   <button class="tab active" id="tab-chat" onclick="switchTab('chat')">💬 Chat with Dr. Mead</button>
-  <button class="tab" id="tab-create" onclick="switchTab('create')">✏️ Create Content</button>
+  <button class="tab" id="tab-create" onclick="switchTab('create')" style="display:none">✏️ Create Content</button>
 </nav>
 
 <div id="panel-chat" class="panel">
@@ -434,6 +434,20 @@ footer {
 </div>
 
 <script>
+// ── Admin unlock: visit /?admin=YOUR_TOKEN once to reveal Create Content tab ───
+(function () {
+  const params = new URLSearchParams(window.location.search);
+  const tok = params.get('admin');
+  if (tok) {
+    localStorage.setItem('dm_admin_token', tok);
+    history.replaceState({}, '', window.location.pathname);
+  }
+  if (localStorage.getItem('dm_admin_token')) {
+    document.getElementById('tab-create').style.display = '';
+  }
+})();
+const adminToken = () => localStorage.getItem('dm_admin_token') || '';
+
 // ── Device detection ──────────────────────────────────────────────────────────
 const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 const isIOS    = /iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -780,7 +794,7 @@ async function generateScript() {
 
   try {
     const res  = await fetch('/api/generate-script', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Token': adminToken() },
       body: JSON.stringify({ topic, contentType: document.getElementById('cc-type').value, length: selectedLength })
     });
     const data = await res.json();
@@ -809,7 +823,7 @@ async function generateVideo() {
 
   try {
     const res  = await fetch('/api/generate-video', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Token': adminToken() },
       body: JSON.stringify({ script })
     });
     const data = await res.json();

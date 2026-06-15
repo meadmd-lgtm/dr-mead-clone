@@ -9,8 +9,16 @@ const ANTHROPIC_KEY    = (process.env.ANTHROPIC_API_KEY   || '').trim();
 const ELEVENLABS_KEY   = (process.env.ELEVENLABS_API_KEY  || '').trim();
 const ELEVENLABS_VOICE = (process.env.ELEVENLABS_VOICE_ID || '').trim();
 const HEYGEN_KEY       = (process.env.HEYGEN_API_KEY      || '').trim();
-const HEYGEN_AVATAR    = (process.env.HEYGEN_AVATAR_ID    || '').trim();
-const HEYGEN_VOICE     = (process.env.HEYGEN_VOICE_ID     || '').trim();
+const HEYGEN_AVATAR    = (process.env.HEYGEN_AVATAR_ID    || 'adf25a1c1f0340b5b7a020486d7f7646').trim();
+const HEYGEN_VOICE     = (process.env.HEYGEN_VOICE_ID     || '95184896e3c94f5d8dcc7170ad6c8163').trim();
+const ADMIN_TOKEN      = (process.env.ADMIN_TOKEN         || '').trim();
+
+function requireAdmin(req, res, next) {
+  if (!ADMIN_TOKEN) return next(); // no token configured → open (dev convenience)
+  const tok = (req.headers['x-admin-token'] || '').trim();
+  if (tok !== ADMIN_TOKEN) return res.status(401).json({ error: 'Admin access required' });
+  next();
+}
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -247,7 +255,7 @@ Voice rules: warm, direct, educational, hopeful. Plain spoken sentences only —
 }
 
 // ── POST /api/generate-script ─────────────────────────────────────────────────
-app.post('/api/generate-script', async (req, res) => {
+app.post('/api/generate-script', requireAdmin, async (req, res) => {
   const { topic, contentType, length } = req.body;
   if (!topic)         return res.status(400).json({ error: 'topic required' });
   if (!ANTHROPIC_KEY) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not set' });
@@ -275,15 +283,13 @@ app.post('/api/generate-script', async (req, res) => {
 });
 
 // ── POST /api/generate-video ──────────────────────────────────────────────────
-app.post('/api/generate-video', async (req, res) => {
+app.post('/api/generate-video', requireAdmin, async (req, res) => {
   const { script } = req.body;
-  if (!script)        return res.status(400).json({ error: 'script required' });
-  if (!HEYGEN_KEY)    return res.status(500).json({ error: 'HEYGEN_API_KEY not set in .env' });
-  if (!HEYGEN_AVATAR) return res.status(500).json({ error: 'HEYGEN_AVATAR_ID not set in .env' });
+  if (!script)     return res.status(400).json({ error: 'script required' });
+  if (!HEYGEN_KEY) return res.status(500).json({ error: 'HEYGEN_API_KEY not set in .env' });
 
   console.log('\n[Video] Submitting to HeyGen, chars:', script.length);
-  const voice = { type: 'text', input_text: script };
-  if (HEYGEN_VOICE) voice.voice_id = HEYGEN_VOICE;
+  const voice = { type: 'text', input_text: script, voice_id: HEYGEN_VOICE };
 
   try {
     const r = await fetch('https://api.heygen.com/v2/video/generate', {
@@ -342,9 +348,12 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log('  ELEVENLABS_VOICE_ID:', preview(ELEVENLABS_VOICE));
   console.log('  HEYGEN_API_KEY:     ', preview(HEYGEN_KEY));
   console.log('  HEYGEN_AVATAR_ID:   ', preview(HEYGEN_AVATAR));
+  console.log('  HEYGEN_VOICE_ID:    ', preview(HEYGEN_VOICE));
+  console.log('  ADMIN_TOKEN:        ', ADMIN_TOKEN ? `${ADMIN_TOKEN.slice(0,4)}... (${ADMIN_TOKEN.length} chars)` : '✗ not set — content API is open');
   console.log('Keys loaded:',
     ANTHROPIC_KEY ? 'ANTHROPIC ✓' : 'ANTHROPIC ✗',
     ELEVENLABS_KEY ? 'ELEVENLABS ✓' : 'ELEVENLABS ✗',
-    HEYGEN_KEY    ? 'HEYGEN ✓'    : 'HEYGEN ✗'
+    HEYGEN_KEY    ? 'HEYGEN ✓'    : 'HEYGEN ✗',
+    ADMIN_TOKEN   ? 'ADMIN ✓'     : 'ADMIN ✗ (open)'
   );
 });
